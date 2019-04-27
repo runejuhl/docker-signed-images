@@ -16,11 +16,11 @@ declare -r ACTION="${1}"
 shift
 
 function layer-get-parent() {
-  docker inspect "${0}" | jq -r '.[0].Parent' | cut -d: -f2
+  docker inspect "${1}" | jq -r '.[0].Parent' | cut -d: -f2
 }
 
 function layer-get-fullhash() {
-  docker inspect "${0}" | jq -r '.[0].Id' | cut -d: -f2
+  docker inspect "${1}" | jq -r '.[0].Id' | cut -d: -f2
 }
 
 function layer-compare-signature() {
@@ -41,7 +41,7 @@ function remove-tmp-files() {
 }
 
 function _mktemp() {
-  TMP_FILE="$(mktemp)"
+  TMP_FILE="$(mktemp "${1:+--tmpdir=${1}}")"
   TMP_FILES+=("${TMP_FILE}")
   echo $TMP_FILE
 }
@@ -70,21 +70,24 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+DOCKERFILE_DIR="$(dirname "$(readlink -f "${DOCKERFILE}")")"
+
 case "$ACTION" in
   build)
     # docker annoyingly detects a non-interactive shell and throws away the output, so we don't have any progression information.
     >&2 echo "tmp files before: ${TMP_FILES[*]}"
-    LAYER_HASH_FILE=$(_mktemp)
+    LAYER_SHORTHASH_FILE=$(_mktemp)
     COMMAND="docker ${ACTION} --file ${DOCKERFILE} ${ARGS}"
     >&2 echo "tmp files after: ${TMP_FILES[*]}"
-    eval $COMMAND | pee cat "tail -n1 | grep 'Successfully built ' | cut -d' ' -f3 > ${LAYER_HASH_FILE}"
-    LAYER_SIGNATURE_FILE=$(_mktemp)
-    LAYER_HASH=$(cat  "${LAYER_HASH_FILE}")
-    docker save "${LAYER_HASH}" | $GPG --armor --detach-sign --output - - >  "${LAYER_SIGNATURE_FILE}"
+    eval $COMMAND | pee cat "tail -n1 | grep 'Successfully built ' | cut -d' ' -f3 > ${LAYER_SHORTHASH_FILE}"
+    LAYER_SIGNATURE_FILE=$(_mktemp "${DOCKERFILE_DIR}")
+    LAYER_FULLHASH=$(layer-get-fullhash $(cat "${LAYER_SHORTHASH_FILE}"))
+    docker save "${LAYER_FULLHASH}" | $GPG --armor --detach-sign --output - - >  "${LAYER_SIGNATURE_FILE}"
 
-    DOCKERFILE_WITH_SIGNATURE=$(_mktemp)
-    cat "${DOCKERFILE}" >> "${DOCKERFILE_WITH_SIGNATURE}" <<EOF
-ADD ${LAYER_SIGNATURE_FILE} /.well-known/signature/$(layer-get-fullhash ${LAYER_HASH}).asc
+    DOCKERFILE_WITH_SIGNATURE=$(_mktemp "${DOCKERFILE_DIR}")
+    cp "${DOCKERFILE}" "${DOCKERFILE_WITH_SIGNATURE}"
+    cat >> "${DOCKERFILE_WITH_SIGNATURE}" <<EOF
+ADD ${LAYER_SIGNATURE_FILE} /.well-known/signature/${LAYER_FULLHASH}.asc
 EOF
     docker build --file ${DOCKERFILE_WITH_SIGNATURE} ${ARGS}
     ;;
