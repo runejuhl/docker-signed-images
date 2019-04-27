@@ -9,5 +9,3 @@ LABEL maintainer='Rune Juhl Jacobsen <runejuhl@enableit.dk>'
 ADD 0ACCEE0203A154E7.pub /.well-known/keys/
 
 RUN touch /testing
-
-RUN docker ps
