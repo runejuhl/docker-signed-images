@@ -8,8 +8,19 @@
 
 set -euo pipefail
 
+declare -a TMP_FILES=()
+declare ARGS='' COMMAND='' DOCKERFILE
+declare GPG="gpg ${GPG_KEY:+--default-key=$GPG_KEY}"
+
+declare -r ACTION="${1}"
+shift
+
 function layer-get-parent() {
   docker inspect "${0}" | jq -r '.[0].Parent' | cut -d: -f2
+}
+
+function layer-get-fullhash() {
+  docker inspect "${0}" | jq -r '.[0].Id' | cut -d: -f2
 }
 
 function layer-compare-signature() {
@@ -22,9 +33,20 @@ function build-get-shorthash() {
   tail -n1 | grep 'Successfully built ' | cut -d' ' -f3
 }
 
-declare ARGS='' COMMAND='' DOCKERFILE
-declare -r ACTION="${1}"
-shift
+function remove-tmp-files() {
+  # FIXME: why is this var always empty?
+  if [[ "${#TMP_FILES[*]}" -gt 0 ]]; then
+    rm -v "${TMP_FILES[*]}"
+  fi
+}
+
+function _mktemp() {
+  TMP_FILE="$(mktemp)"
+  TMP_FILES+=("${TMP_FILE}")
+  echo $TMP_FILE
+}
+
+trap remove-tmp-files INT EXIT
 
 # loop over all arguments
 while [[ $# -gt 0 ]]; do
@@ -51,12 +73,25 @@ done
 case "$ACTION" in
   build)
     # docker annoyingly detects a non-interactive shell and throws away the output, so we don't have any progression information.
+    >&2 echo "tmp files before: ${TMP_FILES[*]}"
+    LAYER_HASH_FILE=$(_mktemp)
     COMMAND="docker ${ACTION} --file ${DOCKERFILE} ${ARGS}"
-    # SIGNATURE=$(docker save gpg --armor --detach-sign -)
-    eval $COMMAND
+    >&2 echo "tmp files after: ${TMP_FILES[*]}"
+    eval $COMMAND | pee cat "tail -n1 | grep 'Successfully built ' | cut -d' ' -f3 > ${LAYER_HASH_FILE}"
+    LAYER_SIGNATURE_FILE=$(_mktemp)
+    LAYER_HASH=$(cat  "${LAYER_HASH_FILE}")
+    docker save "${LAYER_HASH}" | $GPG --armor --detach-sign --output - - >  "${LAYER_SIGNATURE_FILE}"
+
+    DOCKERFILE_WITH_SIGNATURE=$(_mktemp)
+    cat "${DOCKERFILE}" >> "${DOCKERFILE_WITH_SIGNATURE}" <<EOF
+ADD ${LAYER_SIGNATURE_FILE} /.well-known/signature/$(layer-get-fullhash ${LAYER_HASH}).asc
+EOF
+    docker build --file ${DOCKERFILE_WITH_SIGNATURE} ${ARGS}
     ;;
   *)
     COMMAND="docker ${ACTION} ${ARGS}"
     eval $COMMAND
     ;;
 esac
+
+>&2 echo "tmp files again: ${TMP_FILES[*]}"
