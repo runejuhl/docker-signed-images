@@ -41,7 +41,7 @@ function remove-tmp-files() {
 }
 
 function _mktemp() {
-  TMP_FILE="$(mktemp "${1:+--tmpdir=${1}}")"
+  TMP_FILE="$(mktemp ${1:+--tmpdir=${1}})"
   TMP_FILES+=("${TMP_FILE}")
   echo $TMP_FILE
 }
@@ -87,7 +87,7 @@ case "$ACTION" in
     DOCKERFILE_WITH_SIGNATURE=$(_mktemp "${DOCKERFILE_DIR}")
     cp "${DOCKERFILE}" "${DOCKERFILE_WITH_SIGNATURE}"
     cat >> "${DOCKERFILE_WITH_SIGNATURE}" <<EOF
-ADD ${LAYER_SIGNATURE_FILE} /.well-known/signature/${LAYER_FULLHASH}.asc
+ADD $(basename ${LAYER_SIGNATURE_FILE}) /.well-known/signature/${LAYER_FULLHASH}.asc
 EOF
     docker build --file ${DOCKERFILE_WITH_SIGNATURE} ${ARGS}
     ;;
