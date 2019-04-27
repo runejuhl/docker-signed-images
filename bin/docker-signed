@@ -1,0 +1,62 @@
+#!/bin/bash
+#
+# Build a Docker image and sign it using GPG, adding the signature of the last
+# intermediate layer to a new image. Using the new image it's possible to verify
+# the author of a given Docker image without relying on external services.
+#
+# shellcheck disable=SC2222 disable=SC2221 disable=SC2086
+
+set -euo pipefail
+
+function layer-get-parent() {
+  docker inspect "${0}" | jq -r '.[0].Parent' | cut -d: -f2
+}
+
+function layer-compare-signature() {
+  CHILD="$1"
+  PARENT=$(layer-compare-signature "${CHILD}")
+
+}
+
+function build-get-shorthash() {
+  tail -n1 | grep 'Successfully built ' | cut -d' ' -f3
+}
+
+declare ARGS='' COMMAND='' DOCKERFILE
+declare -r ACTION="${1}"
+shift
+
+# loop over all arguments
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    # if the argument is the dockerfile we set the DOCKERFILE variable and do
+    # not augment the ARGS variable with this; this makes it possible for us to
+    # set it later
+    -f|--file)
+      DOCKERFILE="${2}"
+      shift 2
+      ;;
+    # any other argument is added to the command
+    *)
+      ARGS="${ARGS} ${1}"
+      shift
+      # if [[ $# -eq 0 ]]; then
+      #   break
+      # fi
+      # ARGS="${ARGS} ${1}"
+      ;;&
+  esac
+done
+
+case "$ACTION" in
+  build)
+    # docker annoyingly detects a non-interactive shell and throws away the output, so we don't have any progression information.
+    COMMAND="docker ${ACTION} --file ${DOCKERFILE} ${ARGS}"
+    # SIGNATURE=$(docker save gpg --armor --detach-sign -)
+    eval $COMMAND
+    ;;
+  *)
+    COMMAND="docker ${ACTION} ${ARGS}"
+    eval $COMMAND
+    ;;
+esac
