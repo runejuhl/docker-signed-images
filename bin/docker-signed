@@ -23,6 +23,11 @@ function layer-get-fullhash() {
   docker inspect "${1}" | jq -r '.[0].Id' | cut -d: -f2
 }
 
+function layer-get-signature() {
+  docker save "${1}" | tar axf - --to-stdout manifest.json | jq -r '.[0].Layers|.[-1]'
+  docker save 908cfb54514d2636d67e1c00729784a8d1f928592fac1edcb2b32927339fafd5 | tar axf - --to-stdout 1766ac38a5f5a5d8f09ff206280b3ccda4dc0513da945f0782059ea98f66a8da/layer.tar | tar -ax .well-known/signature/8e2861e9c091cc67ab5832d459b35ac8986652e0bd2aee828214084b211e4dce.asc --to-stdout
+}
+
 function layer-compare-signature() {
   CHILD="$1"
   PARENT=$(layer-compare-signature "${CHILD}")
