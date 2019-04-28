@@ -4,6 +4,8 @@
 # intermediate layer to a new image. Using the new image it's possible to verify
 # the author of a given Docker image without relying on external services.
 #
+# Author: Rune Juhl Jacobsen <runejuhl@petardo.dk>
+#
 # shellcheck disable=SC2222 disable=SC2221 disable=SC2086
 
 set -euo pipefail
@@ -28,11 +30,11 @@ function layer-get-signature() {
   docker save 908cfb54514d2636d67e1c00729784a8d1f928592fac1edcb2b32927339fafd5 | tar axf - --to-stdout 1766ac38a5f5a5d8f09ff206280b3ccda4dc0513da945f0782059ea98f66a8da/layer.tar | tar -ax .well-known/signature/8e2861e9c091cc67ab5832d459b35ac8986652e0bd2aee828214084b211e4dce.asc --to-stdout
 }
 
-function layer-compare-signature() {
-  CHILD="$1"
-  PARENT=$(layer-compare-signature "${CHILD}")
+# function layer-compare-signature() {
+#   CHILD="$1"
+#   PARENT=$(layer-compare-signature "${CHILD}")
 
-}
+# }
 
 function build-get-shorthash() {
   tail -n1 | grep 'Successfully built ' | cut -d' ' -f3
@@ -78,22 +80,31 @@ done
 DOCKERFILE_DIR="$(dirname "$(readlink -f "${DOCKERFILE}")")"
 
 case "$ACTION" in
+  # when building images we want to generate the target, and from that create a
+  # GPG signature that we inject into a derivate image
   build)
-    # docker annoyingly detects a non-interactive shell and throws away the output, so we don't have any progression information.
-    >&2 echo "tmp files before: ${TMP_FILES[*]}"
+
+    # temp file for image shorthash and signature
     LAYER_SHORTHASH_FILE=$(_mktemp)
-    COMMAND="docker ${ACTION} --file ${DOCKERFILE} ${ARGS}"
-    >&2 echo "tmp files after: ${TMP_FILES[*]}"
-    eval $COMMAND | pee cat "tail -n1 | grep 'Successfully built ' | cut -d' ' -f3 > ${LAYER_SHORTHASH_FILE}"
     LAYER_SIGNATURE_FILE=$(_mktemp "${DOCKERFILE_DIR}")
-    LAYER_FULLHASH=$(layer-get-fullhash $(cat "${LAYER_SHORTHASH_FILE}"))
+
+    # we use pee to have progress output from docker and grep for and put the
+    # resulting image shorthash into the designated file
+    COMMAND="docker ${ACTION} --file ${DOCKERFILE} ${ARGS}"
+    eval $COMMAND | pee cat "tail -n1 | grep 'Successfully built ' | cut -d' ' -f3 > ${LAYER_SHORTHASH_FILE}"
+    LAYER_FULLHASH=$(layer-get-fullhash "$(cat "${LAYER_SHORTHASH_FILE}")")
+
+    # sign the image
     docker save "${LAYER_FULLHASH}" | $GPG --armor --detach-sign --output - - >  "${LAYER_SIGNATURE_FILE}"
 
+    # derivate Dockerfile that we modify to include signature
     DOCKERFILE_WITH_SIGNATURE=$(_mktemp "${DOCKERFILE_DIR}")
     cp "${DOCKERFILE}" "${DOCKERFILE_WITH_SIGNATURE}"
     cat >> "${DOCKERFILE_WITH_SIGNATURE}" <<EOF
 ADD $(basename ${LAYER_SIGNATURE_FILE}) /.well-known/signature/${LAYER_FULLHASH}.asc
 EOF
+
+    # build derivate image
     docker build --file ${DOCKERFILE_WITH_SIGNATURE} ${ARGS}
     ;;
   *)
