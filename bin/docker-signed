@@ -13,6 +13,7 @@ set -euo pipefail
 declare -a TMP_FILES=()
 declare ARGS='' COMMAND='' DOCKERFILE
 declare GPG="gpg ${GPG_KEY:+--default-key=$GPG_KEY}"
+declare -r DOCKER_USER="${DOCKER_USER:-$USER}"
 
 declare -r ACTION="${1}"
 shift
@@ -33,16 +34,36 @@ function layer-get-parent-layer() {
   layer-get-manifest "${1}" | jq -r '.[0].Layers|.[-1]'
 }
 
+# function image-get-most-recent-signature() {
+#   docker run -ti --rm runejuhl/test-signed-3 \
+#          find /.well-known -name '*.asc' -printf "%T@ %p\\n" | \
+#     sort -n | \
+#     tail -n1 | \
+#     cut -d/ -f4 | \
+#     cut -d. -f1
+# }
+
+function image-get-most-recent-signature() {
+  docker run -ti --rm runejuhl/test-signed-3 \
+         find /.well-known -name '*.asc' -printf "%T@ %p\\n" | \
+    sort -n | \
+    tail -n1 | \
+    cut -d' ' -f2 | \
+    xargs cat
+}
+
+
 function image-get-signature() {
-  PARENT_LAYER=$(layer-get-parent-layer $1)
-  PARENT_IMAGE=$(image-get-parent $1)
-  # docker save "${1}" | tar axf - --to-stdout ${PARENT_LAYER} | tar -at
-  SIGNATURE=$(docker save "${1}" | tar axf - --to-stdout ${PARENT_LAYER} | tar -ax .well-known/signature/${PARENT_IMAGE}.asc --to-stdout)
-  echo "${SIGNATURE}"
+  # PARENT_LAYER=$(layer-get-parent-layer $1)
+  # PARENT_IMAGE=$(image-get-parent $1)
+  # # docker save "${1}" | tar axf - --to-stdout ${PARENT_LAYER} | tar -at
+  # SIGNATURE=$(docker save "${1}" | tar axf - --to-stdout ${PARENT_LAYER} | tar -ax .well-known/signature/${PARENT_IMAGE}.asc --to-stdout)
+  # echo "${SIGNATURE}"
 }
 
 function image-verify-signature() {
-  gpg --verify <(image-get-signature "${1}") <(docker save "$(image-get-parent "${1}")")
+  # gpg --verify <(image-get-signature "${1}") <(docker save "$(image-get-parent "${1}")")
+  gpg --verify <(image-get-most-recent-signature "${1}")
 }
 
 # function layer-compare-signature() {
@@ -112,7 +133,11 @@ case "$ACTION" in
     # resulting image shorthash into the designated file
     COMMAND="docker ${ACTION} --file ${DOCKERFILE} ${ARGS}"
     eval $COMMAND | pee cat "tail -n1 | grep 'Successfully built ' | cut -d' ' -f3 > ${LAYER_SHORTHASH_FILE}"
-    LAYER_FULLHASH=$(layer-get-fullhash "$(cat "${LAYER_SHORTHASH_FILE}")")
+    LAYER_SHORTHASH="$(cat "${LAYER_SHORTHASH_FILE}")"
+    LAYER_FULLHASH=$(layer-get-fullhash "${LAYER_SHORTHASH}")
+
+    # tag image
+    docker tag "${LAYER_FULLHASH}" "${DOCKER_USER}/${LAYER_SHORTHASH}"
 
     # sign the image
     docker save "${LAYER_FULLHASH}" | $GPG --armor --detach-sign --output - - >  "${LAYER_SIGNATURE_FILE}"
@@ -125,12 +150,21 @@ ADD $(basename ${LAYER_SIGNATURE_FILE}) /.well-known/signature/${LAYER_FULLHASH}
 EOF
 
     # build derivate image
-    docker build --file ${DOCKERFILE_WITH_SIGNATURE} ${ARGS}
+    docker build --file "${DOCKERFILE_WITH_SIGNATURE}" ${ARGS}
+    ;;
+  pull)
+    IMAGE="${1}"
+
+    docker pull "${IMAGE}"
+    if ! image-verify-signature "${IMAGE}"; then
+      >&2 echo "Invalid signature in ${IMAGE}! Deleting image..."
+      docker image rm --force "${IMAGE}"
+    fi
     ;;
   verify)
-    IMAGE="$1"
+    IMAGE="${1}"
 
-    image-verify-signature $IMAGE
+    image-verify-signature "${IMAGE}"
     ;;
   *)
     COMMAND="docker ${ACTION} ${ARGS}"
