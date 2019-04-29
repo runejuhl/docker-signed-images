@@ -3,3 +3,66 @@
 #+BEGIN_SRC sh
   GPG_KEY=0ACCEE0203A154E7 ./bin/docker-signed build -f Dockerfile .
 #+END_SRC
+
+* Example
+
+#+BEGIN_EXAMPLE
+  $ GPG_KEY=0ACCEE0203A154E7 ./bin/docker-signed build -f Dockerfile .
+  Sending build context to Docker daemon  149.5kB
+  Step 1/7 : FROM centos:7
+   ---> 1e1148e4cc2c
+  Step 2/7 : ARG FINAL_INTERMEDIATE_IMAGE_SIGNATURE_HASH
+   ---> Using cache
+   ---> 01082af61a0a
+  Step 3/7 : ADD Dockerfile /Dockerfile
+   ---> Using cache
+   ---> 2b67227c6085
+  Step 4/7 : LABEL name='test-signed'
+   ---> Using cache
+   ---> caf377e2f6e5
+  Step 5/7 : LABEL maintainer='Rune Juhl Jacobsen <runejuhl@enableit.dk>'
+   ---> Using cache
+   ---> 6f632b3d2729
+  Step 6/7 : ADD 0ACCEE0203A154E7.pub /.well-known/keys/
+   ---> Using cache
+   ---> c6911daece89
+  Step 7/7 : RUN touch /testing
+   ---> Using cache
+   ---> 8e2861e9c091
+  Successfully built 8e2861e9c091
+  gpg: using "0ACCEE0203A154E7" as default secret key for signing
+  Sending build context to Docker daemon  151.6kB
+  Step 1/8 : FROM centos:7
+   ---> 1e1148e4cc2c
+  Step 2/8 : ARG FINAL_INTERMEDIATE_IMAGE_SIGNATURE_HASH
+   ---> Using cache
+   ---> 01082af61a0a
+  Step 3/8 : ADD Dockerfile /Dockerfile
+   ---> Using cache
+   ---> 2b67227c6085
+  Step 4/8 : LABEL name='test-signed'
+   ---> Using cache
+   ---> caf377e2f6e5
+  Step 5/8 : LABEL maintainer='Rune Juhl Jacobsen <runejuhl@enableit.dk>'
+   ---> Using cache
+   ---> 6f632b3d2729
+  Step 6/8 : ADD 0ACCEE0203A154E7.pub /.well-known/keys/
+   ---> Using cache
+   ---> c6911daece89
+  Step 7/8 : RUN touch /testing
+   ---> Using cache
+   ---> 8e2861e9c091
+  Step 8/8 : ADD tmp.3qE4VVqma4 /.well-known/signature/8e2861e9c091cc67ab5832d459b35ac8986652e0bd2aee828214084b211e4dce.asc
+   ---> ccfd834f2bee
+  Successfully built ccfd834f2bee
+#+END_EXAMPLE
+
+#+BEGIN_EXAMPLE
+  $ GPG_KEY=0ACCEE0203A154E7 ./bin/docker-signed verify 66d44e16a4ce
+  gpg: Signature made 2019-04-29T23:24:30 CEST
+  gpg:                using RSA key 0874D7D007F155520577DEE90ACCEE0203A154E7
+  gpg: Good signature from "Rune Juhl Jacobsen <runejuhl@enableit.dk>" [unknown]
+  gpg:                 aka "Rune Juhl Jacobsen <runejuhl@petardo.dk>" [ultimate]
+  gpg:                 aka "Rune Juhl Jacobsen <rune@juhljacobsen.dk>" [unknown]
+  Primary key fingerprint: 0874 D7D0 07F1 5552 0577  DEE9 0ACC EE02 03A1 54E7
+#+END_EXAMPLE

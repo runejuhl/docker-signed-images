@@ -17,7 +17,7 @@ declare GPG="gpg ${GPG_KEY:+--default-key=$GPG_KEY}"
 declare -r ACTION="${1}"
 shift
 
-function layer-get-parent() {
+function image-get-parent() {
   docker inspect "${1}" | jq -r '.[0].Parent' | cut -d: -f2
 }
 
@@ -25,9 +25,24 @@ function layer-get-fullhash() {
   docker inspect "${1}" | jq -r '.[0].Id' | cut -d: -f2
 }
 
-function layer-get-signature() {
-  docker save "${1}" | tar axf - --to-stdout manifest.json | jq -r '.[0].Layers|.[-1]'
-  docker save 908cfb54514d2636d67e1c00729784a8d1f928592fac1edcb2b32927339fafd5 | tar axf - --to-stdout 1766ac38a5f5a5d8f09ff206280b3ccda4dc0513da945f0782059ea98f66a8da/layer.tar | tar -ax .well-known/signature/8e2861e9c091cc67ab5832d459b35ac8986652e0bd2aee828214084b211e4dce.asc --to-stdout
+function layer-get-manifest() {
+  docker save "${1}" | tar axf - --to-stdout manifest.json
+}
+
+function layer-get-parent-layer() {
+  layer-get-manifest "${1}" | jq -r '.[0].Layers|.[-1]'
+}
+
+function image-get-signature() {
+  PARENT_LAYER=$(layer-get-parent-layer $1)
+  PARENT_IMAGE=$(image-get-parent $1)
+  # docker save "${1}" | tar axf - --to-stdout ${PARENT_LAYER} | tar -at
+  SIGNATURE=$(docker save "${1}" | tar axf - --to-stdout ${PARENT_LAYER} | tar -ax .well-known/signature/${PARENT_IMAGE}.asc --to-stdout)
+  echo "${SIGNATURE}"
+}
+
+function image-verify-signature() {
+  gpg --verify <(image-get-signature "${1}") <(docker save "$(image-get-parent "${1}")")
 }
 
 # function layer-compare-signature() {
@@ -53,33 +68,38 @@ function _mktemp() {
   echo $TMP_FILE
 }
 
+function parse-args() {
+  # loop over all arguments
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      # if the argument is the dockerfile we set the DOCKERFILE variable and do
+      # not augment the ARGS variable with this; this makes it possible for us to
+      # set it later
+      -f|--file)
+        DOCKERFILE="${2}"
+        shift 2
+        ;;
+      # any other argument is added to the command
+      *)
+        ARGS="${ARGS} ${1}"
+        shift
+        # if [[ $# -eq 0 ]]; then
+        #   break
+        # fi
+        # ARGS="${ARGS} ${1}"
+        ;;&
+    esac
+  done
+
+  DOCKERFILE_DIR="$(dirname "$(readlink -f "${DOCKERFILE}")")"
+}
+
 trap remove-tmp-files INT EXIT
 
-# loop over all arguments
-while [[ $# -gt 0 ]]; do
-  case "$1" in
-    # if the argument is the dockerfile we set the DOCKERFILE variable and do
-    # not augment the ARGS variable with this; this makes it possible for us to
-    # set it later
-    -f|--file)
-      DOCKERFILE="${2}"
-      shift 2
-      ;;
-    # any other argument is added to the command
-    *)
-      ARGS="${ARGS} ${1}"
-      shift
-      # if [[ $# -eq 0 ]]; then
-      #   break
-      # fi
-      # ARGS="${ARGS} ${1}"
-      ;;&
-  esac
-done
-
-DOCKERFILE_DIR="$(dirname "$(readlink -f "${DOCKERFILE}")")"
-
 case "$ACTION" in
+  build)
+    parse-args "$@"
+    ;;&
   # when building images we want to generate the target, and from that create a
   # GPG signature that we inject into a derivate image
   build)
@@ -106,6 +126,11 @@ EOF
 
     # build derivate image
     docker build --file ${DOCKERFILE_WITH_SIGNATURE} ${ARGS}
+    ;;
+  verify)
+    IMAGE="$1"
+
+    image-verify-signature $IMAGE
     ;;
   *)
     COMMAND="docker ${ACTION} ${ARGS}"
