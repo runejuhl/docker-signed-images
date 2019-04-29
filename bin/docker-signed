@@ -112,5 +112,3 @@ EOF
     eval $COMMAND
     ;;
 esac
-
->&2 echo "tmp files again: ${TMP_FILES[*]}"

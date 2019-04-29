@@ -1,0 +1,5 @@
+* Building a docker image
+
+#+BEGIN_SRC sh
+  GPG_KEY=0ACCEE0203A154E7 ./bin/docker-signed build -f Dockerfile .
+#+END_SRC
