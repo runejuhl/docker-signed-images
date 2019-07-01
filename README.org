@@ -1,3 +1,12 @@
+* What's this?
+
+An experiment into making GPG-signed docker images that can verify themselves.
+Created after Docker Hub was hacked ultimo April 2019; see
+https://news.ycombinator.com/item?id=19763413.
+
+It kind-of works as far as I remember, but I ran into issues with Docker hub
+pruning some of the metadata that can be associated to local Docker images.
+
 * Building a docker image
 
 #+BEGIN_SRC sh
